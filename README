@@ -1,0 +1,25 @@
+PS3 Mandelbrot set fractal zoomer
+by: zerkman / Sector One
+version: 1.0
+
+ All the computations are done using the SPU's of the Cell processor.
+ The generator is able to render more than 10 frames per second, and for some
+ parts of the Mandelbrot set the framerate can achieve 60 fps ;)
+
+ It works as an installable package, to be installed from USB storage via the
+ "Install Package File" game menu option of jailbroken PS3's.
+
+ Use the analog sticks to scroll and zoom, then you can make a screenshot
+ using the "square" button. Screenshot images are stored to USB storage.
+ Use the "start" button to reset the original settings, and hit "cross" to
+ exit.
+ 
+ Enjoy !
+
+Greetings and thanks to:
+ the PSL1GHT team
+ fail0verflow
+ geohot
+
+
+January 2011 - zerkman.sector1.fr
