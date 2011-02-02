@@ -10,6 +10,7 @@
 #include <rsx/gcm.h>
 #include <rsx/reality.h>
 #include <io/pad.h>
+#include <sysutil/events.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +26,30 @@
 
 void export_bmp(const char *filename, const int32_t *pixbuf,
                 int width, int height);
+
+static void eventHandle(u64 status, u64 param, void * userdata) {
+  (void)param;
+  (void)userdata;
+  if(status == EVENT_REQUEST_EXITAPP){
+    printf("Quit game requested\n");
+    exit(0);
+  }else if(status == EVENT_MENU_OPEN){
+    //xmb opened, should prob pause game or something :P
+    printf("XMB opened\n");
+  }else if(status == EVENT_MENU_CLOSE){
+    //xmb closed, and then resume
+    printf("XMB closed\n");
+  }else if(status == EVENT_DRAWING_BEGIN){
+  }else if(status == EVENT_DRAWING_END){
+  }else{
+    printf("Unhandled event: %08llX\n", (unsigned long long int)status);
+  }
+}
+
+void appCleanup(){
+  sysUnregisterCallback(EVENT_SLOT0);
+  printf("Exiting for real.\n");
+}
 
 /* the three following RSX frame buffer-related functions were borrowed from the
  * PSL1GHT videoTest sample.
@@ -112,6 +137,9 @@ int main(int argc, const char* argv[])
   gcmContextData *context; /* Context to keep track of the RSX buffer. */
   char filename[64];
   int picturecount = 0;
+
+  atexit(appCleanup);
+  sysRegisterCallback(EVENT_SLOT0, eventHandle, NULL);
 
   init_screen(&context, buffer, &res);
   printf("screen res: %dx%d buffers: %p %p\n",
@@ -232,6 +260,7 @@ int main(int argc, const char* argv[])
 
     flip(context, currentBuffer); /* Flip buffer onto screen */
     currentBuffer = !currentBuffer;
+    sysCheckCallback();
   }
 
   for (i = 0; i < 6; i++)
