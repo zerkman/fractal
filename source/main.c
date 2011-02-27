@@ -147,9 +147,6 @@ int main(int argc, const char* argv[])
   ioPadInit(7);
 
   sysSpuImage image;
-  u32 entry = 0;
-  u32 segmentcount = 0;
-  sysSpuSegment* segments;
   u32 group_id;
   Lv2SpuThreadAttributes attr = { ptr2ea("mythread"), 8+1, LV2_SPU_THREAD_ATTRIBUTE_NONE };
   Lv2SpuThreadGroupAttributes grpattr = { 7+1, ptr2ea("mygroup"), 0, 0 };
@@ -160,17 +157,6 @@ int main(int argc, const char* argv[])
 
   printf("Initializing 6 SPUs... ");
   printf("%08x\n", lv2SpuInitialize(6, 0));
-
-  printf("Getting ELF information... ");
-  printf("%08x\n", sysSpuElfGetInformation(spu_bin, &entry, &segmentcount));
-  printf("\tEntry Point: %08x\n\tSegment Count: %08x\n", entry, segmentcount);
-
-  size_t segmentsize = sizeof(sysSpuSegment) * segmentcount;
-  segments = (sysSpuSegment*)malloc(segmentsize);
-  memset(segments, 0, segmentsize);
-
-  printf("Getting ELF segments... ");
-  printf("%08x\n", sysSpuElfGetSegments(spu_bin, segments, segmentcount));
 
   printf("Loading ELF image... ");
   printf("%08x\n", sysSpuImageImport(&image, spu_bin, 0));
