@@ -30,7 +30,6 @@ static void write16(unsigned char *a, uint16_t x) {
 
 void export_bmp(const char *filename, const uint32_t *pixbuf,
                 int width, int height) {
-  static unsigned char out_buf[54 + 1920*1080*3];
   unsigned char *dst;
   const uint32_t *src;
   int i, j;
@@ -41,6 +40,7 @@ void export_bmp(const char *filename, const uint32_t *pixbuf,
   if (out < 0) {
     return;
   }
+  unsigned char *out_buf = malloc(54 + 1920*1080*3);
 
   write16(out_buf, 19778);
   write32(out_buf + 2, width*height*3+14+40);
@@ -72,4 +72,5 @@ void export_bmp(const char *filename, const uint32_t *pixbuf,
   }
   write(out, out_buf, filesize);
   close(out);
+  free(out_buf);
 }
