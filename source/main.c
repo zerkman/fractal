@@ -2,15 +2,7 @@
  * Graphics rendering on spu.
  */
 
-#include <psl1ght/lv2.h>
-#include <psl1ght/lv2/spu.h>
-#include <lv2/spu.h>
-
-#include <sysutil/video.h>
-#include <rsx/gcm.h>
-#include <rsx/reality.h>
 #include <io/pad.h>
-#include <sysutil/events.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,8 +10,15 @@
 #include <malloc.h>
 #include <assert.h>
 #include <math.h>
+#include <unistd.h>
 
-#include "spu.bin.h"
+#include <sysutil/sysutil.h>
+#include <sysutil/video.h>
+#include <rsx/rsx.h>
+#include <rsx/gcm_sys.h>
+#include <sys/spu.h>
+
+#include "spu_bin.h"
 #include "spustr.h"
 
 #define ptr2ea(x) ((u64)(void *)(x))
@@ -30,24 +29,24 @@ void export_bmp(const char *filename, const int32_t *pixbuf,
 static void eventHandle(u64 status, u64 param, void * userdata) {
   (void)param;
   (void)userdata;
-  if(status == EVENT_REQUEST_EXITAPP){
+  if(status == SYSUTIL_EXIT_GAME){
     printf("Quit game requested\n");
     exit(0);
-  }else if(status == EVENT_MENU_OPEN){
+  }else if(status == SYSUTIL_MENU_OPEN){
     //xmb opened, should prob pause game or something :P
     printf("XMB opened\n");
-  }else if(status == EVENT_MENU_CLOSE){
+  }else if(status == SYSUTIL_MENU_CLOSE){
     //xmb closed, and then resume
     printf("XMB closed\n");
-  }else if(status == EVENT_DRAWING_BEGIN){
-  }else if(status == EVENT_DRAWING_END){
+  }else if(status == SYSUTIL_DRAW_BEGIN){
+  }else if(status == SYSUTIL_DRAW_END){
   }else{
     printf("Unhandled event: %08llX\n", (unsigned long long int)status);
   }
 }
 
 void appCleanup(){
-  sysUnregisterCallback(EVENT_SLOT0);
+  sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
   printf("Exiting for real.\n");
 }
 
@@ -64,38 +63,43 @@ void waitFlip() {
 
 /* Prevent the RSX from continuing until the flip has finished. */
 void flip(gcmContextData *context, s32 buffer) {
-  assert(gcmSetFlip(context, buffer) == 0);
-  realityFlushBuffer(context);
+  s32 status = gcmSetFlip(context, buffer);
+  assert(status == 0);
+  rsxFlushBuffer(context);
   gcmSetWaitFlip(context);
 }
 
 /* Initilize everything. */
-void init_screen(gcmContextData **context, s32 *buffer[2], VideoResolution *res) {
+void init_screen(gcmContextData **context, s32 *buffer[2], videoResolution *res) {
   /* Allocate a 1Mb buffer, alligned to a 1Mb boundary to be our shared IO memory with the RSX. */
   void *host_addr = memalign(1024*1024, 1024*1024);
   assert(host_addr != NULL);
 
-  /* Initilise Reality, which sets up the command buffer and shared IO memory */
-  *context = realityInit(0x10000, 1024*1024, host_addr); 
+  /* Initilise libRSX, which sets up the command buffer and shared IO memory */
+  *context = rsxInit(0x10000, 1024*1024, host_addr); 
   assert(*context != NULL);
 
-  VideoState state;
-  assert(videoGetState(0, 0, &state) == 0); // Get the state of the display
+  videoState state;
+  s32 status = videoGetState(0, 0, &state); // Get the state of the display
+  assert(status == 0); 
   assert(state.state == 0); // Make sure display is enabled
 
   /* Get the current resolution */
-  assert(videoGetResolution(state.displayMode.resolution, res) == 0);
+  status = videoGetResolution(state.displayMode.resolution, res);
+  assert(status == 0);
   
   /* Configure the buffer format to xRGB */
-  VideoConfiguration vconfig;
-  memset(&vconfig, 0, sizeof(VideoConfiguration));
+  videoConfiguration vconfig;
+  memset(&vconfig, 0, sizeof(videoConfiguration));
   vconfig.resolution = state.displayMode.resolution;
   vconfig.format = VIDEO_BUFFER_FORMAT_XRGB;
   vconfig.pitch = res->width * 4;
   vconfig.aspect=state.displayMode.aspect;
 
-  assert(videoConfigure(0, &vconfig, NULL, 0) == 0);
-  assert(videoGetState(0, 0, &state) == 0); 
+  status = videoConfigure(0, &vconfig, NULL, 0);
+  assert(status == 0);
+  status = videoGetState(0, 0, &state);
+  assert(status == 0);
 
   s32 buffer_size = 4 * res->width * res->height; /* each pixel is 4 bytes */
   printf("buffers will be 0x%x bytes\n", buffer_size);
@@ -103,13 +107,13 @@ void init_screen(gcmContextData **context, s32 *buffer[2], VideoResolution *res)
   gcmSetFlipMode(GCM_FLIP_VSYNC); /* Wait for VSYNC to flip */
 
   /* Allocate two buffers for the RSX to draw to the screen (double buffering) */
-  buffer[0] = rsxMemAlign(16, buffer_size);
-  buffer[1] = rsxMemAlign(16, buffer_size);
+  buffer[0] = rsxMemalign(16, buffer_size);
+  buffer[1] = rsxMemalign(16, buffer_size);
   assert(buffer[0] != NULL && buffer[1] != NULL);
 
   u32 offset[2];
-  assert(realityAddressToOffset(buffer[0], &offset[0]) == 0);
-  assert(realityAddressToOffset(buffer[1], &offset[1]) == 0);
+  assert(rsxAddressToOffset(buffer[0], &offset[0]) == 0);
+  assert(rsxAddressToOffset(buffer[1], &offset[1]) == 0);
   /* Setup the display buffers */
   assert(gcmSetDisplayBuffer(0, offset[0], res->width * 4, res->width, res->height) == 0);
   assert(gcmSetDisplayBuffer(1, offset[1], res->width * 4, res->width, res->height) == 0);
@@ -128,10 +132,12 @@ int center0(signed char x) {
 
 int main(int argc, const char* argv[])
 {
-  PadInfo padinfo;
-  PadData paddata;
+  padInfo padinfo;
+  padData paddata;
+  s32 status;
+  u32 joinstatus;
 
-  VideoResolution res;
+  videoResolution res;
   s32 *buffer[2]; /* The buffer we will be drawing into. */
   int currentBuffer = 0;
   gcmContextData *context; /* Context to keep track of the RSX buffer. */
@@ -139,7 +145,7 @@ int main(int argc, const char* argv[])
   int picturecount = 0;
 
   atexit(appCleanup);
-  sysRegisterCallback(EVENT_SLOT0, eventHandle, NULL);
+  sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, eventHandle, NULL);
 
   init_screen(&context, buffer, &res);
   printf("screen res: %dx%d buffers: %p %p\n",
@@ -148,21 +154,24 @@ int main(int argc, const char* argv[])
 
   sysSpuImage image;
   u32 group_id;
-  Lv2SpuThreadAttributes attr = { ptr2ea("mythread"), 8+1, LV2_SPU_THREAD_ATTRIBUTE_NONE };
-  Lv2SpuThreadGroupAttributes grpattr = { 7+1, ptr2ea("mygroup"), 0, 0 };
-  Lv2SpuThreadArguments arg[6];
-  u32 cause, status;
+  sysSpuThreadAttribute attr = { ptr2ea("mythread"), 8+1, SPU_THREAD_ATTR_NONE };
+  sysSpuThreadGroupAttribute grpattr = { 7+1, ptr2ea("mygroup"), 0, 0 };
+  sysSpuThreadArgument arg[6];
+  u32 cause;
   int i, j;
   volatile spustr_t *spu = memalign(16, 6*sizeof(spustr_t));
 
   printf("Initializing 6 SPUs... ");
-  printf("%08x\n", lv2SpuInitialize(6, 0));
+  status = sysSpuInitialize(6, 0);
+  printf("%08x\n", status);
 
   printf("Loading ELF image... ");
-  printf("%08x\n", sysSpuImageImport(&image, spu_bin, 0));
+  status = sysSpuImageImport(&image, spu_bin, 0);
+  printf("%08x\n", status);
 
   printf("Creating thread group... ");
-  printf("%08x\n", lv2SpuThreadGroupCreate(&group_id, 6, 100, &grpattr));
+  status = sysSpuThreadGroupCreate(&group_id, 6, 100, &grpattr);
+  printf("%08x\n", status);
   printf("group id = %d\n", group_id);
 
   /* create 6 spu threads */
@@ -180,18 +189,20 @@ int main(int argc, const char* argv[])
     /* The first argument of the main function for the SPU program is the
      * address of its dedicated structure, so it can fetch its contents via DMA
      */
-    arg[i].argument1 = ptr2ea(&spu[i]);
+    arg[i].arg0 = ptr2ea(&spu[i]);
 
     printf("Creating SPU thread... ");
-    printf("%08x\n", lv2SpuThreadInitialize((u32*)&spu[i].id, group_id, i, &image, &attr, &arg[i]));
+    status = sysSpuThreadInitialize((u32*)&spu[i].id, group_id, i, &image, &attr, &arg[i]);
+    printf("%08x\n", status);
     printf("thread id = %d\n", spu[i].id);
 
     printf("Configuring SPU... %08x\n",
-    lv2SpuThreadSetConfiguration(spu[i].id, LV2_SPU_SIGNAL1_OVERWRITE|LV2_SPU_SIGNAL2_OVERWRITE));
+    sysSpuThreadSetConfiguration(spu[i].id, SPU_SIGNAL1_OVERWRITE|SPU_SIGNAL2_OVERWRITE));
   }
 
   printf("Starting SPU thread group... ");
-  printf("%08x\n", lv2SpuThreadGroupStart(group_id));
+  status = sysSpuThreadGroupStart(group_id);
+  printf("%08x\n", status);
 
   /* Now all the SPU threads have been started. For the moment they are blocked
    * waiting for a value in their signal notification register 1 (the
@@ -238,7 +249,8 @@ int main(int argc, const char* argv[])
     scr_ea = ptr2ea(buffer[currentBuffer]);
     for (i = 0; i < 6; i++) {
       spu[i].sync = 0;
-      assert(lv2SpuThreadWriteSignal(spu[i].id, 0, scr_ea) == 0);
+      status = sysSpuThreadWriteSignal(spu[i].id, 0, scr_ea);
+      assert(status == 0);
     }
     for (i = 0; i < 6; i++) {
       while (spu[i].sync == 0);
@@ -246,15 +258,18 @@ int main(int argc, const char* argv[])
 
     flip(context, currentBuffer); /* Flip buffer onto screen */
     currentBuffer = !currentBuffer;
-    sysCheckCallback();
+    sysUtilCheckCallback();
   }
 
-  for (i = 0; i < 6; i++)
-    assert(lv2SpuThreadWriteSignal(spu[i].id, 0, 0) == 0);
+  for (i = 0; i < 6; i++) {
+    status = sysSpuThreadWriteSignal(spu[i].id, 0, 0);
+    assert(status == 0);
+  }
 
   printf("Joining SPU thread group... ");
-  printf("%08x\n", lv2SpuThreadGroupJoin(group_id, &cause, &status));
-  printf("cause=%d status=%d\n", cause, status);
+  status = sysSpuThreadGroupJoin(group_id, &cause, &joinstatus);
+  printf("%08x\n", status);
+  printf("cause=%d status=%d\n", cause, joinstatus);
 
   printf("Closing image... %08x\n", sysSpuImageClose(&image));
 

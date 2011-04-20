@@ -7,9 +7,9 @@
 
 #define TAG 1
 
-#include "spustr.h"
+#include <sys/spu_thread.h>
 
-extern void spu_thread_exit(uint32_t);
+#include "spustr.h"
 
 /* The effective address of the input structure */
 uint64_t spu_ea;

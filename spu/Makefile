@@ -1,70 +1,125 @@
+#---------------------------------------------------------------------------------
+# Clear the implicit built in rules
+#---------------------------------------------------------------------------------
 .SUFFIXES:
+#---------------------------------------------------------------------------------
 ifeq ($(strip $(PSL1GHT)),)
-$(error "PSL1GHT must be set in the environment.")
+$(error "Please set PSL1GHT in your environment. export PSL1GHT=<path>")
 endif
 
-include $(PSL1GHT)/Makefile.base
+include $(PSL1GHT)/spu_rules
 
+#---------------------------------------------------------------------------------
+# TARGET is the name of the output
+# BUILD is the directory where object files & intermediate files will be placed
+# SOURCES is a list of directories containing source code
+# INCLUDES is a list of directories containing extra header files
+#---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
-SOURCE		:=	source
-INCLUDE		:=	include ../include
-DATA		:=	data
-LIBS		:=	
+SOURCES		:=	source
+DATA		:=
+INCLUDES	:=	../include
 
-CFLAGS		:=	-g -O2 -Wall --std=gnu99
-CXXFLAGS	:=	-g -O2 -Wall
-LDFLAGS		:=	
+#---------------------------------------------------------------------------------
+# options for code generation
+#---------------------------------------------------------------------------------
 
-PREFIX		:= spu-
-AR			:= $(PREFIX)ar
-AS			:= $(PREFIX)gcc
-CC			:= $(PREFIX)gcc
-CXX			:= $(PREFIX)g++
-LD			:= $(CC)
+CFLAGS		=	-O2 -Wall $(MACHDEP) $(INCLUDE)
+CXXFLAGS	=	$(CFLAGS)
 
+LDFLAGS		=	$(MACHDEP) -Wl,-Map,$(notdir $@).map
+
+#---------------------------------------------------------------------------------
+# any extra libraries we wish to link with the project
+#---------------------------------------------------------------------------------
+LIBS	:= -lsputhread
+
+#---------------------------------------------------------------------------------
+# list of directories containing libraries, this must be the top level containing
+# include and lib
+#---------------------------------------------------------------------------------
+LIBDIRS	:=
+
+#---------------------------------------------------------------------------------
+# no real need to edit anything past this point unless you need to add additional
+# rules for different file extensions
+#---------------------------------------------------------------------------------
 ifneq ($(BUILD),$(notdir $(CURDIR)))
+#---------------------------------------------------------------------------------
 
 export OUTPUT	:=	$(CURDIR)/$(TARGET)
-export VPATH	:=	$(foreach dir,$(SOURCE),$(CURDIR)/$(dir)) \
+
+export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 					$(foreach dir,$(DATA),$(CURDIR)/$(dir))
-export BUILDDIR	:=	$(CURDIR)/$(BUILD)
-export DEPSDIR	:=	$(BUILDDIR)
 
-CFILES		:= $(foreach dir,$(SOURCE),$(notdir $(wildcard $(dir)/*.c)))
-CXXFILES	:= $(foreach dir,$(SOURCE),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:= $(foreach dir,$(SOURCE),$(notdir $(wildcard $(dir)/*.S)))
-BINFILES	:= $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.bin)))
+export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
-export OFILES	:=	$(CFILES:.c=.o) \
-					$(CXXFILES:.cpp=.o) \
-					$(SFILES:.S=.o)
+#---------------------------------------------------------------------------------
+# automatically build a list of object files for our project
+#---------------------------------------------------------------------------------
+CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+sFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.S)))
+BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
 
-export BINFILES	:=	$(BINFILES:.bin=.bin.h)
+#---------------------------------------------------------------------------------
+# use CXX for linking C++ projects, CC for standard C
+#---------------------------------------------------------------------------------
+ifeq ($(strip $(CPPFILES)),)
+	export LD	:=	$(CC)
+else
+	export LD	:=	$(CXX)
+endif
 
-export INCLUDES	:=	$(foreach dir,$(INCLUDE),-I$(CURDIR)/$(dir)) \
+export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
+					$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
+					$(sFILES:.s=.o) $(SFILES:.S=.o)
+
+#---------------------------------------------------------------------------------
+# build a list of include paths
+#---------------------------------------------------------------------------------
+export INCLUDE	:=	$(foreach dir,$(INCLUDES), -I$(CURDIR)/$(dir)) \
+					$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+					$(LIBPSL1GHT_INC) \
 					-I$(CURDIR)/$(BUILD)
 
+#---------------------------------------------------------------------------------
+# build a list of library paths
+#---------------------------------------------------------------------------------
+export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
+					$(LIBPSL1GHT_LIB)
+
+export OUTPUT	:=	$(CURDIR)/$(TARGET)
 .PHONY: $(BUILD) clean
 
+#---------------------------------------------------------------------------------
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
+#---------------------------------------------------------------------------------
 clean:
-	@echo Clean...
-	@rm -rf $(BUILD) $(OUTPUT).elf $(OUTPUT).a ../data/$(TARGET).bin
+	@echo clean ...
+	@rm -fr $(BUILD) $(OUTPUT).elf
 
+#---------------------------------------------------------------------------------
 else
 
 DEPENDS	:= $(OFILES:.o=.d)
 
+#---------------------------------------------------------------------------------
+# main targets
+#---------------------------------------------------------------------------------
 ../../data/spu.bin: $(OUTPUT).elf
-	@cp $< $@
+	@mkdir -p ../../data
+	cp $< $@
 
 $(OUTPUT).elf: $(OFILES)
-$(OFILES): $(BINFILES)
 
 -include $(DEPENDS)
 
+#---------------------------------------------------------------------------------
 endif
+#---------------------------------------------------------------------------------

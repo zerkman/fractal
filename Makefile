@@ -1,75 +1,101 @@
-.SUFFIXES:
-ifeq ($(strip $(PSL1GHT)),)
-$(error "PSL1GHT must be set in the environment.")
-endif
+##
+## Configuration
+##
 
-include $(PSL1GHT)/host/ppu.mk
+PREFIX          := ppu
 
-TARGET		:=	$(notdir $(CURDIR))
-BUILD		:=	build
-SOURCE		:=	source
-INCLUDE		:=	include 
-DATA		:=	data
-LIBS		:=	-lgcm_sys -lreality -lsysutil -lio -lm
+TARGET		:= fractal.self
 
-TITLE		:=	mandelbrot zoomer by zerkman / Sector One
-APPID		:=	MAND00003
-CONTENTID	:=	UP0001-$(APPID)_00-0000000000000000
-PKGFILES	:=	release
-ICON0		:=	ICON0.PNG
+TITLE		:= mandelbrot zoomer
+APPID		:= MAND00003
+CONTENTID	:= UP0001-$(APPID)_00-0000000000000000
+ICON0		:= ICON0.PNG
+SFOXML		:= /usr/local/ps3dev/bin/sfo.xml
 
-CFLAGS		+= -g -O2 -Wall --std=gnu99
-CXXFLAGS	+= -g -O2 -Wall
+FLAGS		:= -std=gnu99
+INCLUDES	:= -Iinclude -Idata
+LIBS		:= -lgcm_sys -lrsx -lsysutil -lio -lrt -llv2 -lm
 
-ifneq ($(BUILD),$(notdir $(CURDIR)))
+##
+## Tools
+##
 
-export OUTPUT	:=	$(CURDIR)/$(TARGET)
-export VPATH	:=	$(foreach dir,$(SOURCE),$(CURDIR)/$(dir)) \
-					$(foreach dir,$(DATA),$(CURDIR)/$(dir))
-export BUILDDIR	:=	$(CURDIR)/$(BUILD)
-export DEPSDIR	:=	$(BUILDDIR)
+AS		:= $(PSL1GHT)/$(PREFIX)/bin/$(PREFIX)-as
+CC		:= $(PSL1GHT)/$(PREFIX)/bin/$(PREFIX)-gcc
+CPP		:= $(PSL1GHT)/$(PREFIX)/bin/$(PREFIX)-g++
+LD		:= $(PSL1GHT)/$(PREFIX)/bin/$(PREFIX)-g++
 
-CFILES		:= $(foreach dir,$(SOURCE),$(notdir $(wildcard $(dir)/*.c)))
-CXXFILES	:= $(foreach dir,$(SOURCE),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:= $(foreach dir,$(SOURCE),$(notdir $(wildcard $(dir)/*.S)))
-BINFILES	:= $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.bin))) \
-				spu.bin
+ASFLAGS		:=
+CFLAGS		:= -Wall -O3 $(FLAGS) -I$(PSL1GHT)/$(PREFIX)/include $(INCLUDES)
+CPPFLAGS	:= $(CFLAGS)
+LDFLAGS		:= -L$(PSL1GHT)/$(PREFIX)/lib $(LIBS)
 
-export OFILES	:=	$(CFILES:.c=.o) \
-					$(CXXFILES:.cpp=.o) \
-					$(SFILES:.S=.o) \
-					$(BINFILES:.bin=.bin.o)
+MAKE_SELF	:= $(PSL1GHT)/bin/fself.py
+MAKE_SFO	:= $(PSL1GHT)/bin/sfo.py
+MAKE_PKG	:= $(PSL1GHT)/bin/pkg.py
 
-export BINFILES	:=	$(BINFILES:.bin=.bin.h)
+##
+## Files
+##
 
-export INCLUDES	:=	$(foreach dir,$(INCLUDE),-I$(CURDIR)/$(dir)) \
-					-I$(CURDIR)/$(BUILD)
+BINFILES	:= $(shell find data -name "*.bin" -print ) data/spu.bin
+RAWFILES	:= $(shell find data -name "*.raw" -print )
+CFILES		:= $(shell find source -name "*.c"   -print )
+CPPFILES	:= $(shell find source -name "*.cpp" -print )
+SFILES		:= $(shell find source -name "*.s"   -print )
 
-.PHONY: $(BUILD) clean pkg run
+OFILES		:= ${BINFILES:.bin=.o} ${CFILES:.c=.o} ${CPPFILES:.cpp=.o} ${SFILES:.s=.o}
 
-$(BUILD):
-	@[ -d $@ ] || mkdir -p $@
-	@make --no-print-directory -C spu
-	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+##
+## Rules
+##
+
+default: $(TARGET)
 
 clean:
 	@make --no-print-directory -C spu clean
-	@echo "[RM]  $(notdir $(OUTPUT))"
-	@rm -rf $(BUILD) $(OUTPUT).elf $(OUTPUT).self $(OUTPUT).a $(OUTPUT)*.pkg
+	rm -rf $(OFILES) $(TARGET) data
 
-run: $(BUILD)
-	@$(PS3LOADAPP) $(OUTPUT).self
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
-pkg: $(BUILD) $(OUTPUT).pkg
+%.o: %.cpp
+	$(CPP) $(CPPFLAGS) -c $< -o $@
 
-else
+%.o: %.bin
+	@$(PSL1GHT)/bin/bin2s -a 64 $< | $(AS) $(ASFLAGS) -o $@
+	@echo "extern const u8"  `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" >  `(echo $< | tr . _)`.h
+	@echo "extern const u8"  `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];"     >> `(echo $< | tr . _)`.h
+	@echo "extern const u32" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";"  >> `(echo $< | tr . _)`.h
+	@rm $<
 
-DEPENDS	:= $(OFILES:.o=.d)
+%.o: %.raw
+	@$(PSL1GHT)/bin/bin2s -a 64 $< | $(AS) $(ASFLAGS) -o $@
+	@echo "extern const u8"  `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" >  `(echo $< | tr . _)`.h
+	@echo "extern const u8"  `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];"     >> `(echo $< | tr . _)`.h
+	@echo "extern const u32" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";"  >> `(echo $< | tr . _)`.h
 
-$(OUTPUT).self: $(OUTPUT).elf
-$(OUTPUT).elf: $(OFILES)
-$(OFILES): $(BINFILES)
+%.o: %.s
+	$(AS) $(ASFLAGS) -o $@
 
--include $(DEPENDS)
+%.a: $(OFILES)
+	$(AR) cru $@ $(OFILES)
 
-endif
+%.elf: $(OFILES)
+	$(LD) $(OFILES) $(LDFLAGS) -o $@
+
+%.self: %.elf
+	$(MAKE_SELF) $< $@ >> /dev/null
+
+%.pkg: %.elf
+	@rm -Rf pkg
+	@mkdir -p pkg
+	@mkdir -p pkg/USRDIR
+	@cp $(ICON0) pkg
+	$(MAKE_SELF) $< pkg/USRDIR/EBOOT.BIN $(CONTENTID) >> /dev/null
+	$(MAKE_SFO) --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) pkg/PARAM.SFO
+	$(MAKE_PKG) --contentid $(CONTENTID) pkg/ $@ >> /dev/null
+	@rm -Rf pkg
+
+data/spu.bin:
+	@$(MAKE) --no-print-directory -C spu
