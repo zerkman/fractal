@@ -55,8 +55,8 @@ void appCleanup(){
  */
 
 /* Block the PPU thread untill the previous flip operation has finished. */
-void waitFlip() { 
-  while(gcmGetFlipStatus() != 0) 
+void waitFlip() {
+  while(gcmGetFlipStatus() != 0)
     usleep(200);
   gcmResetFlipStatus();
 }
@@ -76,18 +76,18 @@ void init_screen(gcmContextData **context, s32 *buffer[2], videoResolution *res)
   assert(host_addr != NULL);
 
   /* Initilise libRSX, which sets up the command buffer and shared IO memory */
-  *context = rsxInit(0x10000, 1024*1024, host_addr); 
+  *context = rsxInit(0x10000, 1024*1024, host_addr);
   assert(*context != NULL);
 
   videoState state;
   s32 status = videoGetState(0, 0, &state); // Get the state of the display
-  assert(status == 0); 
+  assert(status == 0);
   assert(state.state == 0); // Make sure display is enabled
 
   /* Get the current resolution */
   status = videoGetResolution(state.displayMode.resolution, res);
   assert(status == 0);
-  
+
   /* Configure the buffer format to xRGB */
   videoConfiguration vconfig;
   memset(&vconfig, 0, sizeof(videoConfiguration));
@@ -103,7 +103,7 @@ void init_screen(gcmContextData **context, s32 *buffer[2], videoResolution *res)
 
   s32 buffer_size = 4 * res->width * res->height; /* each pixel is 4 bytes */
   printf("buffers will be 0x%x bytes\n", buffer_size);
-  
+
   gcmSetFlipMode(GCM_FLIP_VSYNC); /* Wait for VSYNC to flip */
 
   /* Allocate two buffers for the RSX to draw to the screen (double buffering) */
