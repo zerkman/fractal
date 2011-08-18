@@ -20,6 +20,7 @@ BUILD		:=	build
 SOURCES		:=	source
 DATA		:=	data
 INCLUDES	:=	include
+ICON0		:=	ICON0.PNG
 
 TITLE		:=	mandelbrot zoomer
 APPID		:=	MAND00003
