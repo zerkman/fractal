@@ -23,8 +23,21 @@
 
 #define ptr2ea(x) ((u64)(void *)(x))
 
-void export_bmp(const char *filename, const int32_t *pixbuf,
+void export_bmp(const char *filename, const uint32_t *pixbuf,
                 int width, int height);
+
+typedef struct {
+  gcmContextData *context;
+  u32 curr_fb;
+  u32 framecnt;
+  u32 pitch;
+  u32 depth_pitch;
+  u32 *buffer[2];
+  u32 offset[2];
+  u32 *depth_buffer;
+  u32 depth_offset;
+  videoResolution res;
+} displayData;
 
 static void eventHandle(u64 status, u64 param, void * userdata) {
   (void)param;
@@ -50,9 +63,41 @@ void appCleanup(){
   printf("Exiting for real.\n");
 }
 
-/* the three following RSX frame buffer-related functions were borrowed from the
- * PSL1GHT videoTest sample.
- */
+void setRenderTarget(const displayData *vdat)
+{
+  gcmSurface sf;
+
+  sf.colorFormat = GCM_TF_COLOR_X8R8G8B8;
+  sf.colorTarget = GCM_TF_TARGET_0;
+  sf.colorLocation[0]	= GCM_LOCATION_RSX;
+  sf.colorOffset[0]	= vdat->offset[vdat->curr_fb];
+  sf.colorPitch[0] = vdat->pitch;
+
+  sf.colorLocation[1]	= GCM_LOCATION_RSX;
+  sf.colorLocation[2]	= GCM_LOCATION_RSX;
+  sf.colorLocation[3]	= GCM_LOCATION_RSX;
+  sf.colorOffset[1]	= 0;
+  sf.colorOffset[2]	= 0;
+  sf.colorOffset[3]	= 0;
+  sf.colorPitch[1] = 64;
+  sf.colorPitch[2] = 64;
+  sf.colorPitch[3] = 64;
+
+  sf.depthFormat = GCM_TF_ZETA_Z16;
+  sf.depthLocation = GCM_LOCATION_RSX;
+  sf.depthOffset = vdat->depth_offset;
+  sf.depthPitch = vdat->depth_pitch;
+
+  sf.type = GCM_TF_TYPE_LINEAR;
+  sf.antiAlias = GCM_TF_CENTER_1;
+
+  sf.width = vdat->res.width;
+  sf.height = vdat->res.height;
+  sf.x = 0;
+  sf.y = 0;
+
+  rsxSetSurface(vdat->context,&sf);
+}
 
 /* Block the PPU thread untill the previous flip operation has finished. */
 void waitFlip() {
@@ -61,23 +106,29 @@ void waitFlip() {
   gcmResetFlipStatus();
 }
 
-/* Prevent the RSX from continuing until the flip has finished. */
-void flip(gcmContextData *context, s32 buffer) {
-  s32 status = gcmSetFlip(context, buffer);
+/* Enqueue a flip command in RSX command buffer.
+   Setup next screen to be drawn to. */
+void flip(displayData *vdat) {
+  s32 status = gcmSetFlip(vdat->context, vdat->curr_fb);
   assert(status == 0);
-  rsxFlushBuffer(context);
-  gcmSetWaitFlip(context);
+  rsxFlushBuffer(vdat->context);
+  gcmSetWaitFlip(vdat->context);
+  vdat->curr_fb = !vdat->curr_fb;
+  ++vdat->framecnt;
+  setRenderTarget(vdat);
 }
 
 /* Initilize everything. */
-void init_screen(gcmContextData **context, s32 *buffer[2], videoResolution *res) {
+void init_screen(displayData *vdat) {
+  int i;
+
   /* Allocate a 1Mb buffer, alligned to a 1Mb boundary to be our shared IO memory with the RSX. */
   void *host_addr = memalign(1024*1024, 1024*1024);
   assert(host_addr != NULL);
 
   /* Initilise libRSX, which sets up the command buffer and shared IO memory */
-  *context = rsxInit(0x10000, 1024*1024, host_addr);
-  assert(*context != NULL);
+  vdat->context = rsxInit(0x10000, 1024*1024, host_addr);
+  assert(vdat->context != NULL);
 
   videoState state;
   s32 status = videoGetState(0, 0, &state); // Get the state of the display
@@ -85,7 +136,7 @@ void init_screen(gcmContextData **context, s32 *buffer[2], videoResolution *res)
   assert(state.state == 0); // Make sure display is enabled
 
   /* Get the current resolution */
-  status = videoGetResolution(state.displayMode.resolution, res);
+  status = videoGetResolution(state.displayMode.resolution, &vdat->res);
   assert(status == 0);
 
   /* Configure the buffer format to xRGB */
@@ -93,7 +144,7 @@ void init_screen(gcmContextData **context, s32 *buffer[2], videoResolution *res)
   memset(&vconfig, 0, sizeof(videoConfiguration));
   vconfig.resolution = state.displayMode.resolution;
   vconfig.format = VIDEO_BUFFER_FORMAT_XRGB;
-  vconfig.pitch = res->width * 4;
+  vconfig.pitch = vdat->res.width * 4;
   vconfig.aspect=state.displayMode.aspect;
 
   status = videoConfigure(0, &vconfig, NULL, 0);
@@ -101,25 +152,30 @@ void init_screen(gcmContextData **context, s32 *buffer[2], videoResolution *res)
   status = videoGetState(0, 0, &state);
   assert(status == 0);
 
-  s32 buffer_size = 4 * res->width * res->height; /* each pixel is 4 bytes */
-  printf("buffers will be 0x%x bytes\n", buffer_size);
-
   gcmSetFlipMode(GCM_FLIP_VSYNC); /* Wait for VSYNC to flip */
 
-  /* Allocate two buffers for the RSX to draw to the screen (double buffering) */
-  buffer[0] = rsxMemalign(16, buffer_size);
-  buffer[1] = rsxMemalign(16, buffer_size);
-  assert(buffer[0] != NULL && buffer[1] != NULL);
+  /* Allocate and setup two buffers for the RSX to draw to the screen (double buffering) */
+	vdat->pitch = vdat->res.width*sizeof(u32);
+  for (i=0; i<2; ++i) {
+    vdat->buffer[i] = (u32*)rsxMemalign(64,vdat->res.width*vdat->pitch);
+    assert(vdat->buffer[i] != NULL);
+    status = rsxAddressToOffset(vdat->buffer[i], &vdat->offset[i]);
+    assert(status==0);
+    status = gcmSetDisplayBuffer(i, vdat->offset[i], vdat->pitch, vdat->res.width, vdat->res.height);
+    assert(status==0);
+  }
 
-  u32 offset[2];
-  assert(rsxAddressToOffset(buffer[0], &offset[0]) == 0);
-  assert(rsxAddressToOffset(buffer[1], &offset[1]) == 0);
-  /* Setup the display buffers */
-  assert(gcmSetDisplayBuffer(0, offset[0], res->width * 4, res->width, res->height) == 0);
-  assert(gcmSetDisplayBuffer(1, offset[1], res->width * 4, res->width, res->height) == 0);
+  /* Allocate and setup the depth buffer */
+	vdat->depth_pitch = vdat->res.width*sizeof(u32);
+	vdat->depth_buffer = (u32*)rsxMemalign(64,(vdat->res.width*vdat->pitch)*2);
+  assert(vdat->depth_buffer != NULL);
+	status = rsxAddressToOffset(vdat->depth_buffer,&vdat->depth_offset);
+  assert(status==0);
 
   gcmResetFlipStatus();
-  flip(*context, 1);
+  vdat->curr_fb = 0;
+  vdat->framecnt = 0;
+  flip(vdat);
 }
 
 /* center analog stick input when the stick is not pushed */
@@ -137,19 +193,16 @@ int main(int argc, const char* argv[])
   s32 status;
   u32 joinstatus;
 
-  videoResolution res;
-  s32 *buffer[2]; /* The buffer we will be drawing into. */
-  int currentBuffer = 0;
-  gcmContextData *context; /* Context to keep track of the RSX buffer. */
+  displayData vdat;
   char filename[64];
   int picturecount = 0;
 
   atexit(appCleanup);
   sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, eventHandle, NULL);
 
-  init_screen(&context, buffer, &res);
+  init_screen(&vdat);
   printf("screen res: %dx%d buffers: %p %p\n",
-       res.width, res.height, buffer[0], buffer[1]);
+       vdat.res.width, vdat.res.height, vdat.buffer[0], vdat.buffer[1]);
   ioPadInit(7);
 
   sysSpuImage image;
@@ -180,8 +233,8 @@ int main(int argc, const char* argv[])
     spu[i].rank = i;
     spu[i].count = 6;
     spu[i].sync = 0;
-    spu[i].width = res.width;
-    spu[i].height = res.height;
+    spu[i].width = vdat.res.width;
+    spu[i].height = vdat.res.height;
     spu[i].zoom = 1.0f;
     spu[i].xc = -0.5f;
     spu[i].yc = 0.f;
@@ -232,7 +285,7 @@ int main(int argc, const char* argv[])
         }
         if (paddata.BTN_SQUARE) {
           sprintf(filename, "/dev_usb/mandel%04d.bmp", ++picturecount);
-          export_bmp(filename, buffer[currentBuffer], res.width, res.height);
+          export_bmp(filename, vdat.buffer[vdat.curr_fb], vdat.res.width, vdat.res.height);
         }
         if (paddata.BTN_START) {
           for (j = 0; j < 6; j++) {
@@ -245,8 +298,18 @@ int main(int argc, const char* argv[])
     }
 
     waitFlip(); /* Wait for the last flip to finish, so we can draw to the old buffer */
-
-    scr_ea = ptr2ea(buffer[currentBuffer]);
+#if 0
+    /* test code */
+    int x, y;
+    u32 *p=vdat.buffer[vdat.curr_fb];
+    u32 c = 0x01010101 * (vdat.framecnt&0xff);
+    for (y=0; y<1080; ++y) {
+      for (x=0; x<1920; ++x) {
+        *p++ = c;
+      }
+    }
+#endif
+    scr_ea = ptr2ea(vdat.buffer[vdat.curr_fb]);
     for (i = 0; i < 6; i++) {
       spu[i].sync = 0;
       status = sysSpuThreadWriteSignal(spu[i].id, 0, scr_ea);
@@ -255,9 +318,7 @@ int main(int argc, const char* argv[])
     for (i = 0; i < 6; i++) {
       while (spu[i].sync == 0);
     }
-
-    flip(context, currentBuffer); /* Flip buffer onto screen */
-    currentBuffer = !currentBuffer;
+    flip(&vdat); /* Flip buffer onto screen */
     sysUtilCheckCallback();
   }
 
@@ -272,7 +333,6 @@ int main(int argc, const char* argv[])
   printf("cause=%d status=%d\n", cause, joinstatus);
 
   printf("Closing image... %08x\n", sysSpuImageClose(&image));
-
   free((void*)spu);
 
   return 0;
