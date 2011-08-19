@@ -69,16 +69,16 @@ void setRenderTarget(const displayData *vdat)
 
   sf.colorFormat = GCM_TF_COLOR_X8R8G8B8;
   sf.colorTarget = GCM_TF_TARGET_0;
-  sf.colorLocation[0]	= GCM_LOCATION_RSX;
-  sf.colorOffset[0]	= vdat->offset[vdat->curr_fb];
+  sf.colorLocation[0] = GCM_LOCATION_RSX;
+  sf.colorOffset[0] = vdat->offset[vdat->curr_fb];
   sf.colorPitch[0] = vdat->pitch;
 
-  sf.colorLocation[1]	= GCM_LOCATION_RSX;
-  sf.colorLocation[2]	= GCM_LOCATION_RSX;
-  sf.colorLocation[3]	= GCM_LOCATION_RSX;
-  sf.colorOffset[1]	= 0;
-  sf.colorOffset[2]	= 0;
-  sf.colorOffset[3]	= 0;
+  sf.colorLocation[1] = GCM_LOCATION_RSX;
+  sf.colorLocation[2] = GCM_LOCATION_RSX;
+  sf.colorLocation[3] = GCM_LOCATION_RSX;
+  sf.colorOffset[1] = 0;
+  sf.colorOffset[2] = 0;
+  sf.colorOffset[3] = 0;
   sf.colorPitch[1] = 64;
   sf.colorPitch[2] = 64;
   sf.colorPitch[3] = 64;
@@ -155,7 +155,7 @@ void init_screen(displayData *vdat) {
   gcmSetFlipMode(GCM_FLIP_VSYNC); /* Wait for VSYNC to flip */
 
   /* Allocate and setup two buffers for the RSX to draw to the screen (double buffering) */
-	vdat->pitch = vdat->res.width*sizeof(u32);
+  vdat->pitch = vdat->res.width*sizeof(u32);
   for (i=0; i<2; ++i) {
     vdat->buffer[i] = (u32*)rsxMemalign(64,vdat->res.width*vdat->pitch);
     assert(vdat->buffer[i] != NULL);
@@ -166,10 +166,10 @@ void init_screen(displayData *vdat) {
   }
 
   /* Allocate and setup the depth buffer */
-	vdat->depth_pitch = vdat->res.width*sizeof(u32);
-	vdat->depth_buffer = (u32*)rsxMemalign(64,(vdat->res.width*vdat->pitch)*2);
+  vdat->depth_pitch = vdat->res.width*sizeof(u32);
+  vdat->depth_buffer = (u32*)rsxMemalign(64,(vdat->res.width*vdat->pitch)*2);
   assert(vdat->depth_buffer != NULL);
-	status = rsxAddressToOffset(vdat->depth_buffer,&vdat->depth_offset);
+  status = rsxAddressToOffset(vdat->depth_buffer,&vdat->depth_offset);
   assert(status==0);
 
   gcmResetFlipStatus();
