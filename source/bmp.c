@@ -1,12 +1,9 @@
 /*
  * export a pixel buffer to bitmap file.
  *
- * In this version of the routine, due to some limitations in psl1ght, we
- * can't dynamically allocate a buffer in memory (malloc). Even allocating a
- * fixed-length buffer in the stack causes problems. Hence the use of a static
- * buffer. Another consequence is that we cannot use fopen/fclose as they
- * dynamically allocate a buffer for the FILE structure. As a consequence, we
- * use the POSIX open/write/close calls.
+ * In this version of the routine, due to some limitations in psl1ght/newlib,
+ * we cannot use fopen/fclose as they have very weak performance.
+ * As a consequence, we use the POSIX open/write/close calls.
  */
 
 #include <sys/types.h>
@@ -35,12 +32,13 @@ void export_bmp(const char *filename, const uint32_t *pixbuf,
   int i, j;
   int out;
   int filesize = 54 + width * height * 3;
+  unsigned char *out_buf;
 
   out = open(filename, O_WRONLY|O_CREAT|O_TRUNC);
   if (out < 0) {
     return;
   }
-  unsigned char *out_buf = malloc(54 + 1920*1080*3);
+  out_buf = malloc(filesize);
 
   write16(out_buf, 19778);
   write32(out_buf + 2, width*height*3+14+40);
