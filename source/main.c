@@ -63,42 +63,6 @@ void appCleanup(){
   printf("Exiting for real.\n");
 }
 
-void setRenderTarget(const displayData *vdat)
-{
-  gcmSurface sf;
-
-  sf.colorFormat = GCM_TF_COLOR_X8R8G8B8;
-  sf.colorTarget = GCM_TF_TARGET_0;
-  sf.colorLocation[0] = GCM_LOCATION_RSX;
-  sf.colorOffset[0] = vdat->offset[vdat->curr_fb];
-  sf.colorPitch[0] = vdat->pitch;
-
-  sf.colorLocation[1] = GCM_LOCATION_RSX;
-  sf.colorLocation[2] = GCM_LOCATION_RSX;
-  sf.colorLocation[3] = GCM_LOCATION_RSX;
-  sf.colorOffset[1] = 0;
-  sf.colorOffset[2] = 0;
-  sf.colorOffset[3] = 0;
-  sf.colorPitch[1] = 64;
-  sf.colorPitch[2] = 64;
-  sf.colorPitch[3] = 64;
-
-  sf.depthFormat = GCM_TF_ZETA_Z16;
-  sf.depthLocation = GCM_LOCATION_RSX;
-  sf.depthOffset = vdat->depth_offset;
-  sf.depthPitch = vdat->depth_pitch;
-
-  sf.type = GCM_TF_TYPE_LINEAR;
-  sf.antiAlias = GCM_TF_CENTER_1;
-
-  sf.width = vdat->res.width;
-  sf.height = vdat->res.height;
-  sf.x = 0;
-  sf.y = 0;
-
-  rsxSetSurface(vdat->context,&sf);
-}
-
 /* Block the PPU thread untill the previous flip operation has finished. */
 void waitFlip() {
   while(gcmGetFlipStatus() != 0)
@@ -115,7 +79,6 @@ void flip(displayData *vdat) {
   gcmSetWaitFlip(vdat->context);
   vdat->curr_fb = !vdat->curr_fb;
   ++vdat->framecnt;
-  setRenderTarget(vdat);
 }
 
 /* Initilize everything. */
