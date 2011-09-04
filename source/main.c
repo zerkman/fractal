@@ -31,11 +31,8 @@ typedef struct {
   u32 curr_fb;
   u32 framecnt;
   u32 pitch;
-  u32 depth_pitch;
   u32 *buffer[2];
   u32 offset[2];
-  u32 *depth_buffer;
-  u32 depth_offset;
   videoResolution res;
 } displayData;
 
@@ -127,13 +124,6 @@ void init_screen(displayData *vdat) {
     status = gcmSetDisplayBuffer(i, vdat->offset[i], vdat->pitch, vdat->res.width, vdat->res.height);
     assert(status==0);
   }
-
-  /* Allocate and setup the depth buffer */
-  vdat->depth_pitch = vdat->res.width*sizeof(u32);
-  vdat->depth_buffer = (u32*)rsxMemalign(64,(vdat->res.width*vdat->pitch)*2);
-  assert(vdat->depth_buffer != NULL);
-  status = rsxAddressToOffset(vdat->depth_buffer,&vdat->depth_offset);
-  assert(status==0);
 
   gcmResetFlipStatus();
   vdat->curr_fb = 0;
